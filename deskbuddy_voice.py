@@ -489,6 +489,10 @@ def try_calculate(text):
     t = re.sub(r"^(what is|what's|whats|calculate|solve|compute)\s+", "", t)
     t = t.rstrip("?.! ").strip()
 
+    # Percentage support: "20% of 80" -> "(20/100)*80", and a bare "50%" -> "(50/100)".
+    t = re.sub(r"(\d+(?:\.\d+)?)\s*%\s*of\s*(\d+(?:\.\d+)?)", r"(\1/100)*\2", t)
+    t = re.sub(r"(\d+(?:\.\d+)?)\s*%", r"(\1/100)", t)
+
     for pattern, symbol in MATH_WORD_OPS:
         t = re.sub(pattern, symbol, t)
 
@@ -541,6 +545,40 @@ def try_calculate_fraction_percent(text):
         percent = int(percent)
 
     return f"{percent}%"
+
+
+def try_calculate_grade_average(text):
+    """
+    If the message lists multiple fraction/score values (e.g. '4.5/7, 3/5, and 3/5, what's my
+    grade', '3 assignments: 90/100, 85/100, 78/100'), computes the average as a percentage
+    directly with Python — no LLM involved. Assumes each fraction carries equal weight (a
+    straight average of the percentages), which matches the common case of equally-weighted
+    assignments. Returns None if fewer than 2 fractions are found or the message doesn't look
+    like a grade/average question, so it falls through to the smart-math LLM path for anything
+    more ambiguous (e.g. differently-weighted assignments).
+    """
+    lowered = text.lower()
+
+    grade_words = ("grade", "grades", "average", "score", "assignment", "assignments", "weighted", "gpa")
+    if not any(word in lowered for word in grade_words):
+        return None
+
+    matches = re.findall(r"(\d+(?:\.\d+)?)\s*(?:/|out of)\s*(\d+(?:\.\d+)?)", lowered)
+    if len(matches) < 2:
+        return None
+
+    percentages = []
+    for num, denom in matches:
+        num, denom = float(num), float(denom)
+        if denom == 0:
+            return None
+        percentages.append((num / denom) * 100)
+
+    average = round(sum(percentages) / len(percentages), 1)
+    if average == int(average):
+        average = int(average)
+
+    return average
 
 
 # Keywords/patterns that suggest a message needs real arithmetic (grades, averages, word
@@ -1111,6 +1149,15 @@ def main():
             percent_result = try_calculate_fraction_percent(user_text)
             if percent_result is not None:
                 reply = f"That's {percent_result}."
+                print(f"Deskbuddy: {reply}\n")
+                log_conversation("deskbuddy", reply)
+                if input_mode == "voice":
+                    do_speak(reply)
+                continue
+
+            grade_avg_result = try_calculate_grade_average(user_text)
+            if grade_avg_result is not None:
+                reply = f"That's about {grade_avg_result}% average, assuming those are weighted equally."
                 print(f"Deskbuddy: {reply}\n")
                 log_conversation("deskbuddy", reply)
                 if input_mode == "voice":
