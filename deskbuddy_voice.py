@@ -177,14 +177,43 @@ def compute_rms(chunk):
     return np.sqrt(np.mean(chunk.astype(np.float64) ** 2))
 
 
-def listen_and_record(q, suppress_event=None):
+def calibrate_silence_threshold(q, suppress_event=None, duration=1.5, margin=2.5):
+    """
+    Measures ambient background noise for `duration` seconds and returns a
+    silence threshold scaled above it, so a loud room (roommates, TV, street
+    noise) doesn't get mistaken for continuous speech and blow through
+    MAX_RECORD_SECONDS. Never returns below SILENCE_THRESHOLD, so a quiet
+    room still uses the normal default.
+    """
+    while not q.empty():
+        q.get_nowait()
+
+    chunks_needed = max(1, int(duration / CHUNK_DURATION))
+    samples = []
+    for _ in range(chunks_needed):
+        chunk = q.get()
+        if suppress_event is not None and suppress_event.is_set():
+            continue
+        samples.append(compute_rms(chunk))
+
+    if not samples:
+        return SILENCE_THRESHOLD
+
+    ambient = float(np.mean(samples))
+    calibrated = max(SILENCE_THRESHOLD, ambient * margin)
+    print(f"Ambient noise level: {ambient:.0f} -> silence threshold set to {calibrated:.0f}")
+    return calibrated
+
+
+def listen_and_record(q, suppress_event=None, silence_threshold=SILENCE_THRESHOLD):
     """
     Consumes audio chunks from an already-open input stream's queue.
     Starts capturing once speech is detected, and stops once the user has been
     silent for SILENCE_DURATION seconds. Returns a wav file path, or None if
     nothing meaningful was captured. If suppress_event is set, incoming audio
     is ignored entirely (used to avoid picking up the deskbuddy's own voice,
-    e.g. during a timer alert).
+    e.g. during a timer alert). silence_threshold overrides the module default
+    so a calibrated, noise-aware value can be used instead.
     """
     silence_needed = int(SILENCE_DURATION / CHUNK_DURATION)
     min_speech_chunks = int(MIN_SPEECH_SECONDS / CHUNK_DURATION)
@@ -205,7 +234,7 @@ def listen_and_record(q, suppress_event=None):
 
         rms = compute_rms(chunk)
 
-        if rms > SILENCE_THRESHOLD:
+        if rms > silence_threshold:
             if not speaking:
                 print("Hearing you...")
             speaking = True
@@ -751,6 +780,7 @@ def main():
     print("Tip: drop any .txt file into the notes/ folder (e.g. games.txt) — it'll be searchable too.")
     print("Say/type 'check our past conversations about ...' to search old chats.")
     print("Say/type 'sleep' or 'go to sleep' to pause listening; 'wake up' or 'awaken' to resume.")
+    print("Say/type 'recalibrate' if background noise is causing long/cut-off recordings.")
     print("Say/type 'what can you do' for a full list of commands.")
     print("Say/type 'bye' to exit, or press Ctrl+C.")
     print(f"Current mode: {PERSONALITIES[mode]['display_label']} | Input: {input_mode}\n")
@@ -767,6 +797,11 @@ def main():
     stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16",
                              blocksize=chunk_samples, device=mic_device, callback=callback)
     stream.start()
+
+    silence_threshold = SILENCE_THRESHOLD
+    if input_mode == "voice":
+        print("Calibrating for background noise (stay quiet for a moment)...")
+        silence_threshold = calibrate_silence_threshold(q, suppress_event)
 
     def start_timer(seconds, label):
         def notify():
@@ -804,7 +839,7 @@ def main():
                 while not q.empty():
                     q.get_nowait()
 
-                wav_path = listen_and_record(q, suppress_event)
+                wav_path = listen_and_record(q, suppress_event, silence_threshold=silence_threshold)
                 if wav_path is None:
                     continue  # nothing meaningful heard, keep listening
 
@@ -911,6 +946,23 @@ def main():
                 print("Deskbuddy: Switched to voice mode.\n")
                 log_conversation("deskbuddy", "Switched to voice mode.")
                 do_speak("Switched to voice mode.")
+                continue
+
+            if lowered in ("recalibrate", "recalibrate for noise", "adjust for noise", "adjust to noise"):
+                if input_mode == "voice":
+                    reply = "Recalibrating. Give me a second of quiet."
+                    print(f"Deskbuddy: {reply}\n")
+                    log_conversation("deskbuddy", reply)
+                    do_speak(reply)
+                    silence_threshold = calibrate_silence_threshold(q, suppress_event)
+                    reply2 = "Done, I've adjusted to the room."
+                    print(f"Deskbuddy: {reply2}\n")
+                    log_conversation("deskbuddy", reply2)
+                    do_speak(reply2)
+                else:
+                    reply = "Recalibration only applies in voice mode."
+                    print(f"Deskbuddy: {reply}\n")
+                    log_conversation("deskbuddy", reply)
                 continue
 
             if "repeat that" in lowered or "say that again" in lowered or "can you repeat" in lowered:
