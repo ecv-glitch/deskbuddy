@@ -508,6 +508,41 @@ def try_calculate(text):
     return result
 
 
+def try_calculate_fraction_percent(text):
+    """
+    If the message is asking to convert a single fraction/score into a percentage
+    (e.g. '4.5/7 as a percent', 'what's 4.5 out of 7 out of 100', '3 out of 5 percent'),
+    computes it directly with Python and returns a formatted percentage string. Returns
+    None if it doesn't look like a single fraction-to-percent conversion (including when
+    there are multiple fractions, which needs the smart-math LLM path instead), so it can
+    fall through as normal.
+    """
+    lowered = text.lower()
+
+    if "percent" not in lowered and "%" not in lowered and "out of 100" not in lowered:
+        return None
+
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:/|out of)\s*(\d+(?:\.\d+)?)", lowered)
+    if not match:
+        return None
+
+    numerator, denominator = float(match.group(1)), float(match.group(2))
+    if denominator == 0:
+        return None
+
+    # Bail if there's a second fraction anywhere — that's a multi-item question (e.g. a
+    # weighted average across several assignments) that needs the smart-math LLM path.
+    remaining = lowered[match.end():]
+    if re.search(r"\d+(?:\.\d+)?\s*(?:/|out of)\s*\d+(?:\.\d+)?", remaining):
+        return None
+
+    percent = round((numerator / denominator) * 100, 1)
+    if percent == int(percent):
+        percent = int(percent)
+
+    return f"{percent}%"
+
+
 # Keywords/patterns that suggest a message needs real arithmetic (grades, averages, word
 # problems) rather than just conversation. The small fast model is unreliable at this kind of
 # multi-step mental math, so questions matching this get bumped to the smart model for the
@@ -1067,6 +1102,15 @@ def main():
             calc_result = try_calculate(user_text)
             if calc_result is not None:
                 reply = f"That's {calc_result}."
+                print(f"Deskbuddy: {reply}\n")
+                log_conversation("deskbuddy", reply)
+                if input_mode == "voice":
+                    do_speak(reply)
+                continue
+
+            percent_result = try_calculate_fraction_percent(user_text)
+            if percent_result is not None:
+                reply = f"That's {percent_result}."
                 print(f"Deskbuddy: {reply}\n")
                 log_conversation("deskbuddy", reply)
                 if input_mode == "voice":
