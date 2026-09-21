@@ -1,0 +1,5 @@
+# Paste or type facts here. Separate each fact/entry with a BLANK LINE —
+# that's how Deskbuddy splits this into searchable chunks.
+# Deskbuddy reads this file automatically, no need to tell it about updates.
+# Lines starting with # (like this one) are ignored.
+

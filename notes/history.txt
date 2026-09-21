@@ -1,0 +1,66 @@
+# Paste or type facts here. Separate each fact/entry with a BLANK LINE —
+# that's how Deskbuddy splits this into searchable chunks.
+# Deskbuddy reads this file automatically, no need to tell it about updates.
+# Lines starting with # (like this one) are ignored.
+
+According to legend, Rome was founded in 753 BC by Romulus, who became its first
+king after killing his twin brother Remus.
+
+Rome was ruled by seven kings from 753 BC to 509 BC, ending when the last king,
+Tarquin the Proud, was overthrown and the Roman Republic was established.
+
+The Roman Republic began in 509 BC, governed by elected consuls and a Senate
+rather than a king.
+
+Rome fought three wars against Carthage called the Punic Wars, from 264 to 146 BC.
+The Second Punic War (218-201 BC) featured Hannibal's famous crossing of the Alps
+with war elephants. Rome ultimately destroyed Carthage in 146 BC.
+
+Rome conquered Greece in the 2nd century BC, absorbing Greek culture, art, and
+philosophy into Roman society.
+
+Julius Caesar rose to power as a military general, conquering Gaul (modern France)
+between 58-50 BC. He crossed the Rubicon River in 49 BC, starting a civil war, and
+became dictator of Rome.
+
+Julius Caesar was assassinated on the Ides of March, 44 BC, by a group of senators
+including Brutus and Cassius, who feared he wanted to become king.
+
+After Caesar's death, civil war broke out between Mark Antony and Octavian
+(Caesar's adopted heir). Octavian defeated Antony and Cleopatra at the Battle of
+Actium in 31 BC.
+
+In 27 BC, Octavian became Rome's first emperor and took the name Augustus,
+marking the end of the Republic and the start of the Roman Empire.
+
+The Pax Romana ("Roman Peace") was a roughly 200-year period of relative peace
+and stability across the Roman Empire, lasting from 27 BC to 180 AD.
+
+In 64 AD, a great fire destroyed much of Rome under Emperor Nero, who was
+rumored (likely unfairly) to have started it himself.
+
+The Colosseum was completed in 80 AD under Emperor Titus, built for gladiator
+contests and public spectacles.
+
+From 96 to 180 AD, Rome was ruled by five emperors — Nerva, Trajan, Hadrian,
+Antoninus Pius, and Marcus Aurelius — considered some of its most stable and
+effective leaders, often called the "Five Good Emperors."
+
+Between 235-284 AD, Rome faced a period of civil war, invasion, and economic
+collapse known as the Crisis of the Third Century, with emperors rising and
+falling rapidly.
+
+Emperor Diocletian split the Empire into Eastern and Western halves in 285 AD
+to make it easier to govern and defend.
+
+Emperor Constantine legalized Christianity in 313 AD with the Edict of Milan,
+and it later became the empire's dominant religion.
+
+Constantine founded the city of Constantinople in 330 AD as a new capital for
+the Eastern Roman Empire.
+
+The Western Roman Empire fell in 476 AD when the Germanic leader Odoacer
+deposed the last Roman emperor, Romulus Augustulus.
+
+The Eastern Roman Empire, later known as the Byzantine Empire, continued for
+nearly another thousand years until it fell to the Ottoman Turks in 1453 AD.

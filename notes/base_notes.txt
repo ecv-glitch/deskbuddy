@@ -1,0 +1,3 @@
+# Paste or type your class notes here yourself.
+# Deskbuddy reads this file but never writes to or overwrites it.
+

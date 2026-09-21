@@ -1,0 +1,6 @@
+logs/
+notes/added_notes.txt
+.DS_Store
+*.onnx
+*.onnx.json
+*.bin
