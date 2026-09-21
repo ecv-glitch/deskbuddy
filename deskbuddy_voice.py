@@ -508,6 +508,33 @@ def try_calculate(text):
     return result
 
 
+# Keywords/patterns that suggest a message needs real arithmetic (grades, averages, word
+# problems) rather than just conversation. The small fast model is unreliable at this kind of
+# multi-step mental math, so questions matching this get bumped to the smart model for the
+# actual number-crunching, while still keeping the current personality's short-answer style.
+MATH_HINT_WORDS = (
+    "grade", "average", "gpa", "weighted", "percent", "percentage", "score", "total",
+    "out of", "divide", "divided", "multiply", "multiplied",
+)
+
+
+def needs_careful_math(text):
+    """
+    Heuristic: does this message likely require real arithmetic to answer correctly (as opposed
+    to just chatting)? Looks for fraction-like patterns ("4.5 out of 7", "3/5") or math-adjacent
+    keywords alongside multiple numbers. Not perfect, but good enough to catch grade/average-style
+    word problems that a small model tends to botch.
+    """
+    lowered = text.lower()
+    if re.search(r"\d+(\.\d+)?\s*/\s*\d+", lowered):
+        return True
+    if re.search(r"\d+(\.\d+)?\s+out\s+of\s+\d+", lowered):
+        return True
+    if any(word in lowered for word in MATH_HINT_WORDS) and len(re.findall(r"\d+(\.\d+)?", lowered)) >= 2:
+        return True
+    return False
+
+
 # ---------- Help ----------
 
 def build_help_text():
@@ -1079,6 +1106,10 @@ def main():
 
             personality = PERSONALITIES[mode]
             model = personality["model"]
+            if mode != "smart" and needs_careful_math(user_text):
+                # Keep this personality's voice/short-answer style, but use the smarter model
+                # to actually do the arithmetic so grade/average-style questions come out right.
+                model = SMART_MODEL
             system_prompt = compose_system_prompt(personality["core_prompt"], personality.get("name"))
 
             history[mode].append({"role": "user", "content": user_text})
