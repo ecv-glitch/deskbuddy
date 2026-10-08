@@ -15,6 +15,7 @@ piper-tts (+ en_US-joe-medium voice), sounddevice, numpy, scipy.
 import json
 import os
 import queue
+import random
 import re
 import select
 import subprocess
@@ -303,8 +304,23 @@ def transcribe(wav_path):
     return text
 
 
+EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"  # symbols & pictographs, emoticons, transport, supplemental symbols
+    "\U00002300-\U000023FF"  # misc technical (clocks, hourglass, etc.)
+    "\U00002600-\U000027BF"  # misc symbols & dingbats (☀ ✨ ✈ etc.)
+    "\U00002B00-\U00002BFF"  # misc symbols & arrows (this is where ⭐ ⭕ actually live)
+    "\U0001F1E6-\U0001F1FF"  # regional indicator symbols (flag letters)
+    "\U0000FE0F"              # variation selector (emoji presentation), e.g. the one in 7️⃣
+    "\U0000200D"              # zero-width joiner (multi-part emoji)
+    "\U000020E3"              # combining enclosing keycap, e.g. the one in 7️⃣
+    "]+",
+    flags=re.UNICODE,
+)
+
+
 def clean_for_speech(text):
-    """Strips leftover markdown/LaTeX symbols the model might still slip in, so Piper doesn't try to speak them literally."""
+    """Strips leftover markdown/LaTeX symbols and emoji the model might slip in, so Piper doesn't try to speak them literally (Piper can't pronounce emoji — it'll either skip or garble them)."""
     text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)   # **bold** -> bold
     text = re.sub(r"\*(.*?)\*", r"\1", text)       # *italic* -> italic
     text = text.replace("`", "")                    # backticks
@@ -312,6 +328,7 @@ def clean_for_speech(text):
     text = text.replace("\\(", "").replace("\\)", "")
     text = re.sub(r"\\[a-zA-Z]+", "", text)          # stray LaTeX commands like \int, \frac
     text = text.replace("_", " ")
+    text = EMOJI_PATTERN.sub("", text)               # emoji — Piper can't speak these
     text = re.sub(r"\s+", " ", text).strip()         # collapse extra whitespace left behind
     return text
 
@@ -579,6 +596,127 @@ def try_calculate_grade_average(text):
         average = int(average)
 
     return average
+
+
+# ---------- Slot machine ----------
+
+# Mirrors the slot machine payout rules from the Steam game Schedule I:
+#   - Three matching fruits (e.g. all cherries)  -> 10x
+#   - Any three fruits, not necessarily matching -> 2x
+#   - Three bells                                -> 25x
+#   - Three sevens                                -> 100x (jackpot)
+#   - Anything else                               -> no payout
+# Each symbol is (emoji, spoken name, spoken plural, is_fruit). The emoji is only for the
+# printed/console line — Piper can't pronounce emoji (clean_for_speech strips them before
+# TTS), so the spoken reply uses the plain-text names instead. A separate plural form avoids
+# naive "add an s" grammar bugs (cherry -> cherries, not "cherrys").
+SLOT_SYMBOLS = [
+    ("🍒", "cherry", "cherries", True),
+    ("🍋", "lemon", "lemons", True),
+    ("🍇", "grapes", "grapes", True),
+    ("🔔", "bell", "bells", False),
+    ("7️⃣", "seven", "sevens", False),
+]
+
+BET_AMOUNT = 10
+STARTING_CREDITS = 1000
+
+# Spin animation, in three phases:
+#   1. FAST_SPINS frames with all three reels blurring at full speed
+#   2. SLOW_SPINS frames, same thing but slower (the sleep between frames gets longer)
+#   3. "The big 3": the reels lock in one at a time, left to right. Each stage is
+#      (frames the unlocked reels keep spinning before this reel locks, seconds per frame),
+#      and the stages get slower so the last reel crawls in for suspense.
+# Tweak these to taste — they set how long the whole spin takes.
+FAST_SPINS = 10
+FAST_DELAY = 0.05
+SLOW_SPINS = 10
+SLOW_DELAY = 0.10
+REEL_LOCK_STAGES = [(3, 0.18), (4, 0.25), (5, 0.35)]
+LOCK_PAUSE = 0.25         # short beat after each reel locks so it registers
+FINAL_HOLD = 0.4          # how long the finished result sits before the line is cleared
+
+
+def animate_spin(final_spin):
+    """
+    Cosmetic reel-spin animation for the terminal. The outcome is already decided
+    (final_spin is the list of symbols the reels will land on) — this only draws the show:
+    FAST_SPINS fast frames, SLOW_SPINS slower frames, then the three reels lock in one by one
+    (REEL_LOCK_STAGES). It redraws a single line in place with \\r and clears it afterward,
+    so the caller prints the permanent result line as usual. Skipped when stdout isn't a real
+    terminal (e.g. piped/redirected output), where carriage-return redraws would just
+    produce garbage.
+    """
+    if not sys.stdout.isatty():
+        return
+
+    def draw(locked_count):
+        shown = []
+        for i in range(3):
+            if i < locked_count:
+                shown.append(final_spin[i][0])                  # this reel has locked in
+            else:
+                shown.append(random.choice(SLOT_SYMBOLS)[0])    # still spinning
+        sys.stdout.write(f"\rDeskbuddy: {' | '.join(shown)}\033[K")
+        sys.stdout.flush()
+
+    for _ in range(FAST_SPINS):
+        draw(0)
+        time.sleep(FAST_DELAY)
+
+    for _ in range(SLOW_SPINS):
+        draw(0)
+        time.sleep(SLOW_DELAY)
+
+    for reel_index, (frames, delay) in enumerate(REEL_LOCK_STAGES):
+        for _ in range(frames):
+            draw(reel_index)           # reels before reel_index are already locked
+            time.sleep(delay)
+        draw(reel_index + 1)           # this reel locks in
+        time.sleep(LOCK_PAUSE)
+
+    time.sleep(FINAL_HOLD)             # let the final landing sink in
+    sys.stdout.write("\r\033[K")       # clear the animation line
+    sys.stdout.flush()
+
+
+def spin_slots(animate=True):
+    """
+    Spins a 3-reel slot machine with Python's random module, using Schedule I's payout
+    rules (see table above). Returns (display_line, result_text, multiplier, detail):
+    display_line is the emoji symbols separated by '|' for the console, result_text is the
+    plain-text symbol names, multiplier is the payout multiplier applied to the bet (0 if
+    nothing matched), and detail is a short description of what matched (None on a loss).
+    The caller (main's gamble command) applies the multiplier to BET_AMOUNT and updates the
+    credit balance — this function only determines the spin outcome. The outcome is decided
+    before the animation starts; the animation is purely cosmetic.
+    """
+    spin = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
+    if animate:
+        animate_spin(spin)
+    emojis = [s[0] for s in spin]
+    names = [s[1] for s in spin]
+    plurals = [s[2] for s in spin]
+    is_fruit = [s[3] for s in spin]
+
+    display_line = " | ".join(emojis)
+    result_text = f"{names[0]}, {names[1]}, {names[2]}"
+
+    all_match = names[0] == names[1] == names[2]
+    all_fruit = all(is_fruit)
+
+    if all_match and names[0] == "seven":
+        multiplier, detail = 100, "jackpot! Three sevens"
+    elif all_match and names[0] == "bell":
+        multiplier, detail = 25, "three bells"
+    elif all_match and is_fruit[0]:
+        multiplier, detail = 10, f"three matching {plurals[0]}"
+    elif all_fruit:
+        multiplier, detail = 2, "any three fruits"
+    else:
+        multiplier, detail = 0, None
+
+    return display_line, result_text, multiplier, detail
 
 
 # Keywords/patterns that suggest a message needs real arithmetic (grades, averages, word
@@ -894,6 +1032,7 @@ def main():
     awaiting_note_content = False
     awaiting_log_query = False
     sleeping = False
+    credits = STARTING_CREDITS
 
     ensure_files_exist()
 
@@ -910,6 +1049,8 @@ def main():
     print("Say/type 'check our past conversations about ...' to search old chats.")
     print("Say/type 'sleep' or 'go to sleep' to pause listening; 'wake up' or 'awaken' to resume.")
     print("Say/type 'recalibrate' if background noise is causing long/cut-off recordings.")
+    print(f"Say/type 'gamble' or 'slots' to spin the slot machine (costs {BET_AMOUNT} credits, "
+          f"start with {STARTING_CREDITS}; say 'reset credits' or 'more credits' to start over).")
     print("Say/type 'what can you do' for a full list of commands.")
     print("Say/type 'bye' to exit, or press Ctrl+C.")
     print(f"Current mode: {PERSONALITIES[mode]['display_label']} | Input: {input_mode}\n")
@@ -1092,6 +1233,54 @@ def main():
                     reply = "Recalibration only applies in voice mode."
                     print(f"Deskbuddy: {reply}\n")
                     log_conversation("deskbuddy", reply)
+                continue
+
+            if lowered in ("gamble", "let's gamble", "lets gamble", "let's go gambling",
+                           "lets go gambling", "go gambling", "slots", "play the slots"):
+                if credits < BET_AMOUNT:
+                    reply = (
+                        f"You're out of credits! You need at least {BET_AMOUNT} to spin. "
+                        "Say 'reset credits' or 'more credits' to start over."
+                    )
+                    print(f"Deskbuddy: {reply}\n")
+                    log_conversation("deskbuddy", reply)
+                    last_reply = reply
+                    if input_mode == "voice":
+                        do_speak(reply)
+                    continue
+
+                credits -= BET_AMOUNT
+                display_line, result_text, multiplier, detail = spin_slots()
+                payout = multiplier * BET_AMOUNT
+                credits += payout
+
+                if multiplier > 0:
+                    spoken_line = (
+                        f"{result_text} — {detail}, that's a {multiplier}x payout! "
+                        f"You win {payout} credits. Balance: {credits}."
+                    )
+                else:
+                    spoken_line = (
+                        f"{result_text} — no match, better luck next time. "
+                        f"Balance: {credits}."
+                    )
+
+                print(f"Deskbuddy: {display_line}")
+                print(f"           {spoken_line}\n")
+                log_conversation("deskbuddy", f"{display_line} — {spoken_line}")
+                last_reply = spoken_line
+                if input_mode == "voice":
+                    do_speak(spoken_line)
+                continue
+
+            if lowered in ("reset credits", "more credits"):
+                credits = STARTING_CREDITS
+                reply = f"Credits reset to {credits}."
+                print(f"Deskbuddy: {reply}\n")
+                log_conversation("deskbuddy", reply)
+                last_reply = reply
+                if input_mode == "voice":
+                    do_speak(reply)
                 continue
 
             if "repeat that" in lowered or "say that again" in lowered or "can you repeat" in lowered:
